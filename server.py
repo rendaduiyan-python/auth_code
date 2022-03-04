@@ -14,7 +14,7 @@ from urllib.error import HTTPError
 from tornado.web import RequestHandler, Application
 from tornado.httpserver import HTTPServer
 from tornado.ioloop import IOLoop
-from typing import (Any, TYPE_CHECKING, Optional, List, TextIO, Tuple)
+from typing import (Any, TYPE_CHECKING, Optional, List, TextIO, Union)
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 log_path: str = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'logging')
@@ -167,6 +167,7 @@ class AuthCodeMixin(_base):
         return self.__read_del(cid, ac_id)
 
     def _delete(self, cid: str, ac_id: str, /) -> Optional['AuthCode']:
+        mylog.debug(f'deleting {cid}, {ac_id}')
         return self.__read_del(cid, ac_id, True)
     
     def __read_del(self, cid: str, ac_id: str, /, delete: bool = False) -> Optional['AuthCode']:
@@ -177,6 +178,7 @@ class AuthCodeMixin(_base):
                 ac = acd[ac_id]
                 if delete:
                     del acd[ac_id]
+        mylog.debug(f'Got auth code: {ac!r}')
         return ac
 
     def _persist(self) -> None:
@@ -231,33 +233,40 @@ class AuthCodeHandler(ClientMixin, BasicAuthMixin, AuthCodeMixin, RequestHandler
             mylog.warning(f'Authentication in {__class__} faield.')
             self.finish()
 
-    def _validate_url(self) -> Tuple[bool, Optional[str], Optional[str]]:
-        valid, ac_id, cid = False, None, None
-        mylog.debug(f'uri: {self.request.uri}')
+    def _validate_url(self, level: int, /) -> List[Union[bool, str, None]]:        
+        mylog.debug(f'uri: {self.request.uri}, {level}')
+        ret_val = []
         matches = [m.start() for m in re.finditer(r'/', self.request.uri)]
-        if len(matches) == 3 and self.request.uri.startswith('/auth/'):         
-            valid = True   
-            ac_id = os.path.basename(self.request.uri)
-            cid = os.path.basename(os.path.dirname(self.request.uri))            
-        return (valid, cid, ac_id)
+        if self.request.uri.startswith('/auth/') and len(matches) == level:         
+            ret_val.append(True)
+            ret_val.append(os.path.basename(self.request.uri)) 
+            temp_uri = os.path.dirname(self.request.uri) # level ++
+            while(temp_uri != '/auth'):
+                mylog.debug(f'current uri: {temp_uri}')
+                ret_val.append(os.path.basename(temp_uri))
+                temp_uri = os.path.dirname(temp_uri)
+        else:
+            ret_val.append(False)
+        mylog.debug(f'validating result: {ret_val}')
+        return ret_val
 
     async def get(self) -> None:
-        valid, cid, ac_id = self._validate_url()        
-        if valid:            
-            ac = self._read(cid, ac_id)
-            if ac and time.time() < ac.ac_start + ac.ac_expire:
-                self.write(json.dumps({'client_id': cid, ac_id: True}))
+        ret = self._validate_url(4)
+        if ret[0]:            
+            ac = self._read(ret[3], ret[2])
+            if ac and time.time() < ac.ac_start + ac.ac_expire and ret[1] == ac.ac_value:
+                self.write(json.dumps({'client_id': ret[3], ret[2]: True}))
             else:
-                self.write(json.dumps({'client_id': cid, ac_id: False}))
+                self.write(json.dumps({'client_id': ret[3], ret[2]: False}))
         else:
             self.set_status(404)
         self.finish()    
     
     async def delete(self) -> None:
-        valid, cid, ac_id = self._validate_url()        
-        if valid:            
-            ac = self._delete(cid, ac_id)
-            self.write(json.dumps({'client_id': cid, ac_id: 'n/a' if not ac else 'deleted'}))
+        ret = self._validate_url(3)        
+        if ret[0]:            
+            ac = self._delete(ret[2], ret[1])
+            self.write(json.dumps({'client_id': ret[2], ret[1]: 'n/a' if not ac else 'deleted'}))
         else:
             self.set_status(400)
         self.finish()

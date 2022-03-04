@@ -209,7 +209,7 @@ class AuthCodeHandlerTestCase(AsyncTestCase):
 
         mylog.info('about to delete an auth code with correct format and correct id')
         mylog.info('about to check auth code is valid')        
-        url = f"{self._url_auth}/{cid}/{ac_dict['id']}"
+        url = f"{self._url_auth}/{cid}/{ac_dict['id']}/{ac_dict['value']}"
         resp = yield self._client.fetch(url,
                                         method='GET',
                                         headers=headers)
@@ -228,7 +228,7 @@ class AuthCodeHandlerTestCase(AsyncTestCase):
         self.assertEqual(resp_dict[ac_dict['id']], 'deleted')
 
         mylog.info('about to check again if auth code is invalid')
-        url = f"{self._url_auth}/{cid}/{ac_dict['id']}"
+        url = f"{self._url_auth}/{cid}/{ac_dict['id']}/{ac_dict['value']}"
         resp = yield self._client.fetch(url,
                                         method='GET',
                                         headers=headers)
